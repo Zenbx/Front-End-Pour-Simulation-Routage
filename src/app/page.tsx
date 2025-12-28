@@ -1,65 +1,209 @@
-import Image from "next/image";
+/**
+ * Main Dashboard Page
+ * Complete logistics simulation interface
+ */
 
-export default function Home() {
+'use client';
+
+import React, { useEffect } from 'react';
+import dynamic from 'next/dynamic';
+import { Truck, Plus, History, Activity } from 'lucide-react';
+import { useSimulation } from '@/hooks/useSimulation';
+import ParcelCreationForm from '@/components/forms/ParcelCreationForm';
+import SimulationControls from '@/components/simulation/SimulationControls';
+import IncidentPanel from '@/components/simulation/IncidentPanel';
+import ParcelsList from '@/components/simulation/ParcelsList';
+import PetriNetViewer from '@/components/petri/PetriNetViewer';
+import { SimulationEngine } from '@/lib/simulation-engine';
+import { Toaster } from 'react-hot-toast';
+
+// Dynamically import map to avoid SSR issues
+const EnhancedMap = dynamic(
+  () => import('@/components/simulation/EnhancedMap'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full w-full bg-gray-100 animate-pulse flex items-center justify-center rounded-lg">
+        <p className="text-gray-500">Chargement de la carte...</p>
+      </div>
+    ),
+  }
+);
+
+export default function Dashboard() {
+  const { state, actions } = useSimulation();
+
+  // Load hubs on mount
+  useEffect(() => {
+    actions.loadHubs();
+  }, [actions]);
+
+  // Calculate simulation stats
+  const stats = SimulationEngine.getSimulationStats(state.parcels);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+    <>
+      <Toaster position="top-right" />
+      
+      <div className="flex h-screen bg-gray-50 font-sans text-foreground">
+        {/* LEFT SIDEBAR - Control Panel */}
+        <aside className="w-96 bg-white border-r border-outline flex flex-col elevation-1 z-10 overflow-hidden">
+          {/* Header */}
+          <header className="p-6 border-b border-outline flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="bg-primary p-2 rounded-lg">
+                <Truck className="text-white w-6 h-6" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-primary">
+                  PicknDrop
+                </h1>
+                <span className="text-foreground font-light text-sm uppercase tracking-widest">
+                  Simulateur
+                </span>
+              </div>
+            </div>
+          </header>
+
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            {/* Section: New Parcel */}
+            <section>
+              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <Plus className="w-3 h-3" />
+                Nouveau Colis
+              </h2>
+              <ParcelCreationForm
+                hubs={state.hubs}
+                onParcelCreated={(parcel, route) => {
+                  actions.addParcel(parcel, route);
+                }}
+              />
+            </section>
+
+            {/* Section: Simulation Controls */}
+            <section>
+              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <Activity className="w-3 h-3" />
+                Contrôles de simulation
+              </h2>
+              <SimulationControls
+                isPlaying={state.isPlaying}
+                speed={state.speed}
+                stats={stats}
+                onPlay={actions.play}
+                onPause={actions.pause}
+                onSpeedChange={actions.setSpeed}
+              />
+            </section>
+
+            {/* Section: Incidents */}
+            <section>
+              <IncidentPanel
+                incidents={state.incidents}
+                incidentPlacementMode={state.incidentPlacementMode}
+                selectedIncidentType={state.selectedIncidentType}
+                onActivateIncidentMode={actions.toggleIncidentMode}
+                onCancelIncidentMode={() => actions.toggleIncidentMode(null)}
+                onResolveIncident={actions.resolveIncident}
+              />
+            </section>
+
+            {/* Section: Active Parcels */}
+            <section>
+              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <History className="w-3 h-3" />
+                Colis Actifs ({state.parcels.size})
+              </h2>
+              <ParcelsList
+                parcels={state.parcels}
+                selectedParcelId={state.selectedParcelId}
+                onParcelClick={actions.selectParcel}
+              />
+            </section>
+
+            {/* Section: Petri Net (Preparation) */}
+            <section>
+              <PetriNetViewer
+                entityId={state.selectedParcelId || undefined}
+                enabled={false}
+              />
+            </section>
+          </div>
+        </aside>
+
+        {/* MAIN AREA - Map */}
+        <main className="flex-1 p-6 relative">
+          <div className="h-full w-full rounded-2xl overflow-hidden elevation-2 bg-white relative">
+            <EnhancedMap
+              center={[3.848, 11.502]} // Yaoundé
+              zoom={13}
+              parcels={state.parcels}
+              incidents={state.incidents}
+              hubs={state.hubs}
+              selectedParcelId={state.selectedParcelId}
+              incidentPlacementMode={state.incidentPlacementMode}
+              selectedIncidentType={state.selectedIncidentType}
+              onParcelClick={actions.selectParcel}
+              onIncidentPlace={actions.createIncident}
+              onIncidentClick={(id) => {
+                console.log('Incident clicked:', id);
+              }}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+
+            {/* Overlay: Global Status */}
+            <div className="absolute top-6 left-6 z-[400] bg-white/95 backdrop-blur-sm p-4 rounded-xl border border-outline elevation-2 min-w-[220px]">
+              <p className="text-xs font-bold text-gray-500 uppercase mb-2">
+                Status Global
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-2xl font-bold text-primary">
+                    {stats.inTransit}
+                  </p>
+                  <p className="text-xs text-gray-600">En transit</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-green-600">
+                    {stats.delivered}
+                  </p>
+                  <p className="text-xs text-gray-600">Livrés</p>
+                </div>
+              </div>
+              {stats.withIncidents > 0 && (
+                <div className="mt-3 pt-3 border-t border-gray-200">
+                  <p className="text-lg font-bold text-red-600">
+                    ⚠️ {stats.withIncidents} incident(s)
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Overlay: Legend */}
+            <div className="absolute bottom-6 left-6 z-[400] bg-white/95 backdrop-blur-sm p-3 rounded-lg border border-outline elevation-1">
+              <p className="text-xs font-bold text-gray-600 mb-2">Légende</p>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-primary" />
+                  <span>Hubs</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-primary border-2 border-white" />
+                  <span>Colis en transit</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-0.5 bg-primary" />
+                  <span>Itinéraire</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-red-600" />
+                  <span>Incident</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </>
   );
 }
