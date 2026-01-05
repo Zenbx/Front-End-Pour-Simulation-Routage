@@ -175,7 +175,8 @@ export const LogisticsService = {
 
   calculateRoute: async (data: RouteCalculationRequest): Promise<RouteResponse> => {
     try {
-      const response = await apiClient.post<RouteResponse>('/routes/calculate', data);
+      // Explicitly stringify to ensure a valid JSON payload is sent (defensive)
+      const response = await apiClient.post<RouteResponse>('/routes/calculate', JSON.stringify(data));
       toast.success('Itinéraire calculé avec succès');
       return response.data;
     } catch (error) {
