@@ -30,6 +30,10 @@ const EnhancedMap = dynamic(
   }
 );
 
+// Initial map view constants
+const INITIAL_CENTER: [number, number] = [4.05, 9.70]; // Douala (where most hubs are now)
+const INITIAL_ZOOM = 13;
+
 export default function Dashboard() {
   const { state, actions } = useSimulation();
 
@@ -44,7 +48,7 @@ export default function Dashboard() {
   return (
     <>
       <Toaster position="top-right" />
-      
+
       <div className="flex h-screen bg-gray-50 font-sans text-foreground">
         {/* LEFT SIDEBAR - Control Panel */}
         <aside className="w-96 bg-white border-r border-outline flex flex-col elevation-1 z-10 overflow-hidden">
@@ -126,7 +130,7 @@ export default function Dashboard() {
             <section>
               <PetriNetViewer
                 entityId={state.selectedParcelId || undefined}
-                enabled={false}
+                enabled={true}
               />
             </section>
           </div>
@@ -136,8 +140,8 @@ export default function Dashboard() {
         <main className="flex-1 p-6 relative">
           <div className="h-full w-full rounded-2xl overflow-hidden elevation-2 bg-white relative">
             <EnhancedMap
-              center={[3.848, 11.502]} // Yaoundé
-              zoom={13}
+              center={INITIAL_CENTER}
+              zoom={INITIAL_ZOOM}
               parcels={state.parcels}
               incidents={state.incidents}
               hubs={state.hubs}
@@ -152,7 +156,7 @@ export default function Dashboard() {
             />
 
             {/* Overlay: Global Status */}
-            <div className="absolute top-6 left-6 z-[400] bg-white/95 backdrop-blur-sm p-4 rounded-xl border border-outline elevation-2 min-w-[220px]">
+            <div className="absolute top-6 right-6 z-[400] bg-white/95 backdrop-blur-sm p-4 rounded-xl border border-outline elevation-2 min-w-[220px]">
               <p className="text-xs font-bold text-gray-500 uppercase mb-2">
                 Status Global
               </p>

@@ -44,7 +44,7 @@ apiClient.interceptors.response.use(
     } else if (!error.response) {
       toast.error('Impossible de contacter le serveur');
     }
-    
+
     return Promise.reject(error);
   }
 );
@@ -126,7 +126,7 @@ export interface IncidentRequest {
 
 export const LogisticsService = {
   // ===== HUBS =====
-  
+
   getAllHubs: async (): Promise<GeoPointResponse[]> => {
     try {
       const response = await apiClient.get<GeoPointResponse[]>('/hubs');
@@ -226,32 +226,37 @@ export const LogisticsService = {
 // PETRI NET SERVICE (Préparation - Currently disabled)
 // ============================================================================
 
+const PETRI_API_BASE_URL = 'http://localhost:8081/api/nets';
+
 export const PetriNetService = {
-  isEnabled: false,
+  isEnabled: true,
 
   triggerTransition: async (entityId: string, transition: string) => {
-    if (!PetriNetService.isEnabled) {
-      console.warn('⚠️ Petri Net API is currently disabled');
-      throw new Error('Petri Net API is disabled');
+    if (!PetriNetService.isEnabled) return;
+    try {
+      await axios.post(`${PETRI_API_BASE_URL}/${entityId}/fire/${transition}`, {});
+      toast.success(`Transition ${transition} déclenchée`);
+    } catch (error) {
+      console.error('Error firing transition:', error);
+      toast.error('Erreur lors du déclenchement de la transition');
     }
-    // Futur: appel à l'API Petri Net
-    // return apiClient.post('/petri/transition', { entityId, transition });
   },
 
   getState: async (entityId: string) => {
-    if (!PetriNetService.isEnabled) {
-      console.warn('⚠️ Petri Net API is currently disabled');
-      throw new Error('Petri Net API is disabled');
+    if (!PetriNetService.isEnabled) return null;
+    try {
+      const response = await axios.get(`${PETRI_API_BASE_URL}/${entityId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching Petri net state:', error);
+      return null;
     }
-    // Futur: appel à l'API Petri Net
-    // return apiClient.get(`/petri/state/${entityId}`);
   },
 
   getHistory: async (entityId: string) => {
-    if (!PetriNetService.isEnabled) {
-      throw new Error('Petri Net API is disabled');
-    }
-    // Futur: appel à l'API Petri Net
+    if (!PetriNetService.isEnabled) return null;
+    // History endpoint not yet implemented in backend
+    return [];
   },
 };
 

@@ -15,6 +15,7 @@ import {
   useMap,
   useMapEvents,
   Circle,
+  ZoomControl,
 } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -54,7 +55,7 @@ const hubIcon = L.divIcon({
 const incidentIcon = (type: IncidentType) => {
   let color = '#F44336'; // red
   if (type === 'TRAFFIC') color = '#FF9800'; // orange
-  
+
   return L.divIcon({
     className: 'custom-incident-marker',
     html: `
@@ -138,14 +139,6 @@ function MapClickHandler({
   return null;
 }
 
-// Map view updater
-function MapUpdater({ center, zoom }: { center: [number, number]; zoom: number }) {
-  const map = useMap();
-  useEffect(() => {
-    map.setView(center, zoom);
-  }, [center, zoom, map]);
-  return null;
-}
 
 export default function EnhancedMap({
   center = [3.848, 11.502],
@@ -191,14 +184,15 @@ export default function EnhancedMap({
         zoom={zoom}
         className="h-full w-full z-0"
         scrollWheelZoom={true}
+        zoomControl={false} // Disable default to add custom position
       >
+        <ZoomControl position="topleft" />
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        <MapUpdater center={center} zoom={zoom} />
-        
+
         <MapClickHandler
           incidentPlacementMode={incidentPlacementMode}
           selectedIncidentType={selectedIncidentType}
