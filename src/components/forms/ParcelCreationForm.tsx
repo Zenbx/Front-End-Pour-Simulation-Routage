@@ -114,8 +114,8 @@ export default function ParcelCreationForm({
           endHubId: formData.deliveryHubId,
           driverId: formData.driverId,
           constraints: {
-            algorithm: 'DIJKSTRA',
-            vehicleType: 'VAN',
+            algorithm: 'OSRM',
+            vehicleType: 'TRUCK',
           },
         });
 
