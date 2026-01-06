@@ -20,6 +20,14 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use(
   (config) => {
     console.log(`🚀 ${config.method?.toUpperCase()} ${config.url}`);
+    if (config.data) {
+      // Log the request payload for debugging (handle both object and string)
+      try {
+        console.log('📤 Request payload:', typeof config.data === 'string' ? JSON.parse(config.data) : config.data);
+      } catch (e) {
+        console.log('📤 Request payload (raw):', config.data);
+      }
+    }
     return config;
   },
   (error) => {
@@ -34,12 +42,32 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error: AxiosError) => {
-    console.error(`❌ ${error.config?.method?.toUpperCase() || 'UNKNOWN_METHOD'} ${error.config?.url || 'UNKNOWN_URL'} - ${error.response?.status || 'Network Error'}`);
+    const method = error.config?.method?.toUpperCase() || 'UNKNOWN_METHOD';
+    const url = error.config?.url || 'UNKNOWN_URL';
+    const status = error.response?.status;
+    const statusText = error.response?.statusText || '';
+    const respData = error.response?.data;
+    const isEmpty = respData && typeof respData === 'object' && Object.keys(respData).length === 0;
 
-    // Handle common errors
-    if (error.response?.status === 404) {
+    // For expected client errors (400/422/404) keep logs quieter and surface friendly messages
+    if (status === 400 || status === 422 || status === 404) {
+      console.warn(`⚠️ ${method} ${url} - ${status} ${statusText}`);
+      console.info('ℹ️ Response body:', isEmpty ? '(empty)' : respData);
+    } else {
+      console.error(`❌ ${method} ${url} - ${status || 'Network Error'}`);
+      console.error('❌ Response body:', isEmpty ? '(empty)' : respData);
+    }
+
+    // Handle common errors with friendly toasts
+    if (status === 404) {
       toast.error('Ressource introuvable');
-    } else if (error.response?.status === 500) {
+    } else if (status === 422) {
+      const message = (respData as any)?.message || statusText || 'Requête non traitable';
+      toast.error(message);
+    } else if (status === 400) {
+      const message = (respData as any)?.message || statusText || 'Requête invalide';
+      toast.error(message);
+    } else if (status === 500) {
       toast.error('Erreur serveur. Réessayez plus tard.');
     } else if (!error.response) {
       toast.error('Impossible de contacter le serveur');
@@ -97,6 +125,7 @@ export interface RouteCalculationRequest {
   parcelId?: string;
   startHubId: string;
   endHubId: string;
+  driverId: string;
   constraints?: {
     algorithm?: string;
     vehicleType?: string;
@@ -108,6 +137,13 @@ export interface RouteResponse {
   routeGeometry: string; // WKT LineString
   totalDistanceKm: number;
   estimatedDurationMin: number;
+}
+
+export interface DriverResponse {
+  id: string;
+  name: string;
+  status: string;
+  currentLocation?: GeoPointResponse;
 }
 
 export interface IncidentRequest {
@@ -148,6 +184,18 @@ export const LogisticsService = {
     return response.data;
   },
 
+  // ===== DRIVERS =====
+
+  getAllDrivers: async (): Promise<DriverResponse[]> => {
+    try {
+      const response = await apiClient.get<DriverResponse[]>('/drivers');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching drivers:', error);
+      throw error;
+    }
+  },
+
   // ===== PARCELS =====
 
   getAllParcels: async (): Promise<ParcelResponse[]> => {
@@ -175,12 +223,61 @@ export const LogisticsService = {
 
   calculateRoute: async (data: RouteCalculationRequest): Promise<RouteResponse> => {
     try {
-      // Explicitly stringify to ensure a valid JSON payload is sent (defensive)
-      const response = await apiClient.post<RouteResponse>('/routes/calculate', JSON.stringify(data));
+      // Validate required fields before sending to backend
+      if (!data.parcelId) {
+        throw new Error('parcelId is required for route calculation');
+      }
+      if (!data.startHubId) {
+        throw new Error('startHubId is required for route calculation');
+      }
+      if (!data.endHubId) {
+        throw new Error('endHubId is required for route calculation');
+      }
+
+      // Send as an object (axios will handle JSON serialization)
+      const response = await apiClient.post<any>('/routes/calculate', data);
+
+      // Adapt Backend DTO (path: GeoPoint[]) to Frontend Type (routeGeometry: WKT)
+      if (response.data?.path && Array.isArray(response.data.path)) {
+        const coordinates = response.data.path.map((p: any) => `${p.longitude} ${p.latitude}`).join(', ');
+        response.data.routeGeometry = `LINESTRING(${coordinates})`;
+      }
+
+      // Validate response data
+      if (!response.data?.routeGeometry) {
+        console.error('Backend returned route without geometry:', response.data);
+        throw new Error('Route geometry missing from server response');
+      }
+
+      // Validate that routeGeometry is a valid WKT string
+      if (!response.data.routeGeometry.toUpperCase().startsWith('LINESTRING')) {
+        console.error('Invalid routeGeometry format:', response.data.routeGeometry);
+        throw new Error('Invalid route geometry format from server');
+      }
+
       toast.success('Itinéraire calculé avec succès');
       return response.data;
     } catch (error) {
-      toast.error('Erreur lors du calcul de l\'itinéraire');
+      // Log backend validation/error payload to help debugging (use warn for client errors)
+      const axiosErr = error as AxiosError;
+      const backendData = axiosErr.response?.data as any;
+      const isEmpty = backendData && typeof backendData === 'object' && Object.keys(backendData).length === 0;
+      const status = axiosErr.response?.status;
+
+      if (status === 400 || status === 422) {
+        console.warn('Route calculation client error:', status, axiosErr.response?.statusText);
+        console.info('Response body:', isEmpty ? '(empty response body)' : backendData);
+      } else {
+        console.error('Route calculation failed:', isEmpty ? '(empty response body)' : backendData);
+      }
+
+      // Friendly fallback messages when backend returns empty or no message
+      const message = backendData?.message
+        || (status === 422 ? 'Aucun itinéraire trouvé entre les hubs sélectionnés' : undefined)
+        || (status === 400 ? (axiosErr.response?.statusText || 'Requête invalide') : undefined)
+        || (error instanceof Error ? error.message : 'Erreur lors du calcul de l\'itinéraire');
+
+      toast.error(message);
       throw error;
     }
   },

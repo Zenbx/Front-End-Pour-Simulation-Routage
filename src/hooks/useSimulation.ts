@@ -216,28 +216,81 @@ export function useSimulation() {
   }, []);
 
   const addParcel = useCallback(
-    async (parcelData: ParcelResponse, route: RouteResponse) => {
-      const routePath = parseWKTLineString(route.routeGeometry);
+    async (parcelData: ParcelResponse, route: RouteResponse | null) => {
+      // If there is a valid route, create a simulated parcel with path and auto-start
+      if (route) {
+        // Validate route geometry before parsing
+        if (!route.routeGeometry) {
+          console.error('Route missing geometry:', route);
+          toast.error('Itinéraire invalide: géométrie manquante');
+          return;
+        }
 
-      if (routePath.length === 0) {
-        toast.error('Impossible de parser l\'itinéraire');
-        return;
+        if (!route.routeGeometry.toUpperCase().includes('LINESTRING')) {
+          console.error('Invalid route geometry format:', route.routeGeometry);
+          toast.error('Itinéraire invalide: format de géométrie incorrect');
+          return;
+        }
+
+        const routePath = parseWKTLineString(route.routeGeometry);
+
+        if (routePath.length === 0) {
+          console.error('Failed to parse route geometry:', route.routeGeometry);
+          toast.error('Impossible de tracer l\'itinéraire (parsing WKT échoué)');
+          return;
+        }
+
+        if (routePath.length < 2) {
+          console.warn('Route has less than 2 points:', routePath);
+          toast.error('Itinéraire invalide: moins de 2 points');
+          return;
+        }
+
+        const simulatedParcel = SimulationEngine.createSimulatedParcel(
+          parcelData,
+          route,
+          routePath
+        );
+
+        // Auto-start immediately
+        simulatedParcel.state = 'TRANSIT';
+        simulatedParcel.startTime = new Date();
+
+        dispatch({ type: 'ADD_PARCEL', payload: simulatedParcel });
+
+        toast.success(`Livraison démarrée: ${parcelData.trackingCode}`);
+      } else {
+        // No route: add parcel in PLANNED state so it appears in the UI but doesn't start
+        let startPos: Position = { lat: 4.05, lng: 9.7 };
+
+        // Try to place parcel at pickup hub coordinates if available
+        const pickupHub = state.hubs.find(h => h.id === parcelData.pickupLocation);
+        if (pickupHub) {
+          startPos = { lat: pickupHub.latitude, lng: pickupHub.longitude };
+        }
+
+        const simulatedParcel: SimulatedParcel = {
+          id: parcelData.id,
+          trackingCode: parcelData.trackingCode,
+          parcelData,
+          route: null,
+          routePath: [],
+          currentPosition: startPos,
+          state: 'PLANNED',
+          progress: 0,
+          pathIndex: 0,
+          startTime: null,
+          estimatedArrival: null,
+          actualArrival: null,
+          speed: 30,
+          affectedByIncidents: [],
+        };
+
+        dispatch({ type: 'ADD_PARCEL', payload: simulatedParcel });
+        console.info('Parcel added without route (will remain PLANNED):', simulatedParcel.id);
       }
-
-      const simulatedParcel = SimulationEngine.createSimulatedParcel(
-        parcelData,
-        route,
-        routePath
-      );
-
-      dispatch({ type: 'ADD_PARCEL', payload: simulatedParcel });
-
-      // Auto-start the parcel
-      setTimeout(() => {
-        startParcel(simulatedParcel.id);
-      }, 1000);
     },
-    []
+    [state.hubs]
   );
 
   const startParcel = useCallback((parcelId: string) => {

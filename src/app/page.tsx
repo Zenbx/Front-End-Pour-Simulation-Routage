@@ -60,7 +60,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-primary">
-                  PicknDrop
+                  TiibnTick
                 </h1>
                 <span className="text-foreground font-light text-sm uppercase tracking-widest">
                   Simulateur
@@ -80,7 +80,7 @@ export default function Dashboard() {
               <ParcelCreationForm
                 hubs={state.hubs}
                 onParcelCreated={(parcel, route) => {
-                  actions.addParcel(parcel, route);
+                  actions.addParcel(parcel, route ?? null);
                 }}
               />
             </section>

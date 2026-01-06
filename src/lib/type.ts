@@ -32,6 +32,13 @@ export interface RouteResponse {
   estimatedDurationMin: number;
 }
 
+export interface DriverResponse {
+  id: string;
+  name: string;
+  status: string;
+  currentLocation?: GeoPointResponse;
+}
+
 // ============================================================================
 // Simulation Types
 // ============================================================================
