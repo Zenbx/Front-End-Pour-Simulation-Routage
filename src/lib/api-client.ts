@@ -5,8 +5,40 @@
 
 import axios, { AxiosError } from 'axios';
 import { toast } from 'react-hot-toast';
+import { PetriNetState } from './type';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+
+export interface ApiLogEntry {
+  id: string;
+  method: string;
+  url: string;
+  timestamp: Date;
+  status?: number;
+  requestData?: any;
+  responseData?: any;
+  error?: string;
+  duration?: number;
+}
+
+export const apiLogHistory: ApiLogEntry[] = [];
+const MAX_LOGS = 50;
+
+const addLog = (log: Partial<ApiLogEntry>) => {
+  const entry: ApiLogEntry = {
+    id: Math.random().toString(36).substring(2, 9),
+    method: 'GET',
+    url: '',
+    timestamp: new Date(),
+    ...log
+  };
+  apiLogHistory.unshift(entry);
+  if (apiLogHistory.length > MAX_LOGS) {
+    apiLogHistory.pop();
+  }
+  // Trigger custom event for components to listen
+  window.dispatchEvent(new CustomEvent('api-log-updated', { detail: entry }));
+};
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -19,15 +51,16 @@ const apiClient = axios.create({
 // Request interceptor
 apiClient.interceptors.request.use(
   (config) => {
+    (config as any).metadata = { startTime: new Date() };
     console.log(`🚀 ${config.method?.toUpperCase()} ${config.url}`);
-    if (config.data) {
-      // Log the request payload for debugging (handle both object and string)
-      try {
-        console.log('📤 Request payload:', typeof config.data === 'string' ? JSON.parse(config.data) : config.data);
-      } catch (e) {
-        console.log('📤 Request payload (raw):', config.data);
-      }
-    }
+
+    // Add to history
+    addLog({
+      method: config.method?.toUpperCase() || 'GET',
+      url: config.url || '',
+      requestData: config.data,
+    });
+
     return config;
   },
   (error) => {
@@ -38,16 +71,40 @@ apiClient.interceptors.request.use(
 // Response interceptor
 apiClient.interceptors.response.use(
   (response) => {
+    const startTime = (response.config as any).metadata?.startTime;
+    const duration = startTime ? new Date().getTime() - startTime.getTime() : undefined;
+
     console.log(`✅ ${response.config.method?.toUpperCase()} ${response.config.url} - ${response.status}`);
+
+    // Update log entry (trying to find the one we just created)
+    // For simplicity, we just add a NEW "complete" log entry or update the last one if it matches
+    const lastLog = apiLogHistory[0];
+    if (lastLog && lastLog.url === response.config.url && lastLog.method === response.config.method?.toUpperCase()) {
+      lastLog.status = response.status;
+      lastLog.responseData = response.data;
+      lastLog.duration = duration;
+      window.dispatchEvent(new CustomEvent('api-log-updated'));
+    }
+
     return response;
   },
   (error: AxiosError) => {
     const method = error.config?.method?.toUpperCase() || 'UNKNOWN_METHOD';
     const url = error.config?.url || 'UNKNOWN_URL';
     const status = error.response?.status;
-    const statusText = error.response?.statusText || '';
     const respData = error.response?.data;
-    const isEmpty = respData && typeof respData === 'object' && Object.keys(respData).length === 0;
+    const startTime = (error.config as any)?.metadata?.startTime;
+    const duration = startTime ? new Date().getTime() - startTime.getTime() : undefined;
+
+    // Update history
+    const lastLog = apiLogHistory[0];
+    if (lastLog && lastLog.url === url && lastLog.method === method) {
+      lastLog.status = status;
+      lastLog.responseData = respData;
+      lastLog.error = error.message;
+      lastLog.duration = duration;
+      window.dispatchEvent(new CustomEvent('api-log-updated'));
+    }
 
     // For expected client errors (400/422/404) keep logs quieter and surface friendly messages
     if (status === 400 || status === 422 || status === 404) {
@@ -137,6 +194,9 @@ export interface RouteResponse {
   routeGeometry: string; // WKT LineString
   totalDistanceKm: number;
   estimatedDurationMin: number;
+  routingService?: string; // Algorithm used (BASIC, OSRM, DIJKSTRA, A_STAR)
+  trafficFactor?: number;
+  isActive?: boolean;
 }
 
 export interface DriverResponse {
@@ -148,11 +208,15 @@ export interface DriverResponse {
 
 export interface IncidentRequest {
   type: 'ROAD_CLOSURE' | 'TRAFFIC' | 'VEHICLE_BREAKDOWN' | 'WEATHER';
-  location: {
+  lineStart: {
     latitude: number;
     longitude: number;
   };
-  radius?: number;
+  lineEnd: {
+    latitude: number;
+    longitude: number;
+  };
+  bufferDistance: number; // Buffer width in meters
   description?: string;
 }
 
@@ -292,10 +356,23 @@ export const LogisticsService = {
     incident: IncidentRequest
   ): Promise<RouteResponse> => {
     try {
-      const response = await apiClient.post<RouteResponse>(
+      const response = await apiClient.post<any>(
         `/routes/${routeId}/recalculate`,
         incident
       );
+
+      // Adapt Backend DTO (path: GeoPoint[]) to Frontend Type (routeGeometry: WKT)
+      if (response.data?.path && Array.isArray(response.data.path)) {
+        const coordinates = response.data.path.map((p: any) => `${p.longitude} ${p.latitude}`).join(', ');
+        response.data.routeGeometry = `LINESTRING(${coordinates})`;
+      }
+
+      // Validate response data
+      if (!response.data?.routeGeometry) {
+        console.error('Backend returned route without geometry:', response.data);
+        throw new Error('Route geometry missing from recalculated route');
+      }
+
       toast.success('Itinéraire recalculé');
       return response.data;
     } catch (error) {
@@ -303,6 +380,7 @@ export const LogisticsService = {
       throw error;
     }
   },
+
 
   createDelivery: async (data: RouteCalculationRequest): Promise<RouteResponse> => {
     const response = await apiClient.post<RouteResponse>('/deliveries', data);
@@ -329,21 +407,21 @@ const PETRI_API_BASE_URL = 'http://localhost:8081/api/nets';
 export const PetriNetService = {
   isEnabled: true,
 
-  triggerTransition: async (entityId: string, transition: string) => {
+  triggerTransition: async (netId: string, transitionId: string, binding: Record<string, any[]> = {}) => {
     if (!PetriNetService.isEnabled) return;
     try {
-      await axios.post(`${PETRI_API_BASE_URL}/${entityId}/fire/${transition}`, {});
-      toast.success(`Transition ${transition} déclenchée`);
+      await axios.post(`${PETRI_API_BASE_URL}/${netId}/fire/${transitionId}`, binding);
+      toast.success(`Transition ${transitionId} déclenchée`);
     } catch (error) {
       console.error('Error firing transition:', error);
       toast.error('Erreur lors du déclenchement de la transition');
     }
   },
 
-  getState: async (entityId: string) => {
+  getState: async (netId: string): Promise<PetriNetState | null> => {
     if (!PetriNetService.isEnabled) return null;
     try {
-      const response = await axios.get(`${PETRI_API_BASE_URL}/${entityId}`);
+      const response = await axios.get<PetriNetState>(`${PETRI_API_BASE_URL}/${netId}`);
       return response.data;
     } catch (error) {
       console.error('Error fetching Petri net state:', error);
@@ -351,9 +429,8 @@ export const PetriNetService = {
     }
   },
 
-  getHistory: async (entityId: string) => {
-    if (!PetriNetService.isEnabled) return null;
-    // History endpoint not yet implemented in backend
+  getHistory: async (netId: string) => {
+    if (!PetriNetService.isEnabled) return [];
     return [];
   },
 };

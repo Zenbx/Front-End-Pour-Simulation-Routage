@@ -23,6 +23,7 @@ export interface ParcelResponse {
   senderName?: string;
   recipientName?: string;
   weightKg?: number;
+  petriNetId?: string;
 }
 
 export interface RouteResponse {
@@ -30,6 +31,9 @@ export interface RouteResponse {
   routeGeometry: string; // WKT LINESTRING
   totalDistanceKm: number;
   estimatedDurationMin: number;
+  routingService?: string; // Algorithm used (BASIC, OSRM, DIJKSTRA, A_STAR)
+  trafficFactor?: number;
+  isActive?: boolean;
 }
 
 export interface DriverResponse {
@@ -43,14 +47,14 @@ export interface DriverResponse {
 // Simulation Types
 // ============================================================================
 
-export type ParcelState = 
+export type ParcelState =
   | 'PLANNED'      // Créé, pas encore en transit
   | 'TRANSIT'      // En cours de livraison
   | 'INCIDENT'     // Incident détecté, recalcul en cours
   | 'DELIVERED'    // Livré avec succès
   | 'FAILED';      // Échec de livraison
 
-export type IncidentType = 
+export type IncidentType =
   | 'ROAD_CLOSURE'      // Route barrée
   | 'TRAFFIC'           // Trafic intense
   | 'VEHICLE_BREAKDOWN' // Panne véhicule
@@ -66,25 +70,25 @@ export interface SimulatedParcel {
   id: string;
   trackingCode: string;
   parcelData: ParcelResponse;
-  
+
   // Route et navigation
   route: RouteResponse | null;
   routePath: Position[]; // Points du trajet (parsed from WKT)
   currentPosition: Position;
-  
+
   // État et progression
   state: ParcelState;
   progress: number; // 0-100%
   pathIndex: number; // Index dans routePath
-  
+
   // Timing
   startTime: Date | null;
   estimatedArrival: Date | null;
   actualArrival: Date | null;
-  
+
   // Vitesse (km/h)
   speed: number;
-  
+
   // Incidents affectant ce colis
   affectedByIncidents: string[];
 }
@@ -92,8 +96,10 @@ export interface SimulatedParcel {
 export interface Incident {
   id: string;
   type: IncidentType;
-  position: Position;
-  radius: number; // Rayon d'impact en mètres
+  // Ligne d'incident (route bloquée entre deux points)
+  startPosition: Position;
+  endPosition: Position;
+  width: number; // Largeur de la zone d'impact en mètres (de chaque côté de la ligne)
   affectedRouteIds: string[];
   timestamp: Date;
   resolved: boolean;
@@ -105,11 +111,11 @@ export interface SimulationState {
   parcels: Map<string, SimulatedParcel>;
   incidents: Map<string, Incident>;
   hubs: GeoPointResponse[];
-  
+
   // Contrôles
   isPlaying: boolean;
   speed: number; // 1x, 2x, 5x, 10x
-  
+
   // Mode UI
   incidentPlacementMode: boolean;
   selectedIncidentType: IncidentType | null;
@@ -139,28 +145,17 @@ export interface ParcelCreationFormData {
 export interface PetriPlace {
   id: string;
   name: string;
-  tokens: number;
-  type: 'parcel' | 'driver' | 'vehicle' | 'hub';
+  tokens: PetriToken[];
 }
 
-export interface PetriTransition {
-  id: string;
-  name: string;
-  enabled: boolean;
-  inputPlaces: string[];
-  outputPlaces: string[];
-  condition?: string;
+export interface PetriToken {
+  value: any;
+  creationTimestamp: number;
 }
 
 export interface PetriNetState {
-  places: PetriPlace[];
-  transitions: PetriTransition[];
-  currentMarking: Record<string, number>;
-  history: {
-    transition: string;
-    timestamp: Date;
-    marking: Record<string, number>;
-  }[];
+  currentTime: number;
+  marking: Record<string, PetriToken[]>;
 }
 
 // ============================================================================

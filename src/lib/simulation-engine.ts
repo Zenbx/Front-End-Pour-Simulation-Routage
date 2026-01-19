@@ -13,13 +13,14 @@ import {
 import {
   interpolateAlongPath,
   isWithinRadius,
+  isWithinLineBuffer,
   calculatePathDistance,
 } from './wkt-parser';
 
 export class SimulationEngine {
   private static readonly BASE_SPEED = 40; // km/h (vitesse moyenne en ville)
   private static readonly UPDATE_INTERVAL_MS = 100; // 10 FPS
-  
+
   /**
    * Calculate new position for a parcel based on elapsed time
    */
@@ -39,7 +40,7 @@ export class SimulationEngine {
 
     // Calculate total route distance
     const totalDistanceKm = parcel.route.totalDistanceKm;
-    
+
     // Update progress
     const progressIncrement = distanceTraveledKm / totalDistanceKm;
     const newProgress = Math.min(parcel.progress + progressIncrement, 1);
@@ -73,11 +74,12 @@ export class SimulationEngine {
     for (const incident of incidents.values()) {
       if (incident.resolved) continue;
 
-      // Check if parcel is within incident radius
-      const isAffected = isWithinRadius(
+      // Check if parcel is within incident line buffer
+      const isAffected = isWithinLineBuffer(
         parcel.currentPosition,
-        incident.position,
-        incident.radius / 1000 // Convert meters to km
+        incident.startPosition,
+        incident.endPosition,
+        incident.width / 1000 // Convert meters to km
       );
 
       if (isAffected && !parcel.affectedByIncidents.includes(incident.id)) {
@@ -137,14 +139,21 @@ export class SimulationEngine {
     newRoute: RouteResponse,
     newRoutePath: Position[]
   ): SimulatedParcel {
-    // Keep current progress but update to new path
-    const { position } = interpolateAlongPath(newRoutePath, parcel.progress);
+    // CRITICAL: The backend already calculated the route starting from the
+    // current driver position to the destination. So we need to:
+    // 1. Reset progress to 0 (start of the NEW route)
+    // 2. Start from the first point of the new route (which IS the current position)
+
+    // The new route is: [currentPosition] -> [waypoint/detour] -> [destination]
+    // So progress = 0 means we're at the current position, which is correct!
 
     return {
       ...parcel,
       route: newRoute,
       routePath: newRoutePath,
-      currentPosition: position,
+      currentPosition: newRoutePath[0] || parcel.currentPosition, // Start from beginning of new route
+      progress: 0, // Reset progress - new route starts here
+      pathIndex: 0, // Reset path index
       state: 'TRANSIT', // Resume transit after recalculation
       estimatedArrival: new Date(
         Date.now() + newRoute.estimatedDurationMin * 60 * 1000
@@ -190,7 +199,12 @@ export class SimulationEngine {
     routePath: Position[]
   ): boolean {
     return routePath.some(position =>
-      isWithinRadius(position, incident.position, incident.radius / 1000)
+      isWithinLineBuffer(
+        position,
+        incident.startPosition,
+        incident.endPosition,
+        incident.width / 1000
+      )
     );
   }
 
@@ -199,13 +213,13 @@ export class SimulationEngine {
    */
   static getSimulationStats(parcels: Map<string, SimulatedParcel>) {
     const parcelsArray = Array.from(parcels.values());
-    
+
     return {
       totalParcels: parcelsArray.length,
       inTransit: parcelsArray.filter(p => p.state === 'TRANSIT').length,
       delivered: parcelsArray.filter(p => p.state === 'DELIVERED').length,
       withIncidents: parcelsArray.filter(p => p.state === 'INCIDENT').length,
-      totalDistance: parcelsArray.reduce((sum, p) => 
+      totalDistance: parcelsArray.reduce((sum, p) =>
         sum + (p.route?.totalDistanceKm || 0), 0
       ),
       averageSpeed: parcelsArray.length > 0

@@ -158,7 +158,7 @@ export default function IncidentPanel({
                           minute: '2-digit',
                         })}
                         {' • '}
-                        Rayon: {incident.radius}m
+                        Largeur: {incident.width}m
                       </p>
                     </div>
                   </div>

@@ -1,13 +1,8 @@
-/**
- * Petri Net Viewer Component
- * Visualization of Petri Net states and transitions (Preparation for future API)
- */
-
-'use client';
-
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Card } from '@/components/ui/Card';
-import { Activity, Circle, ArrowRight, Clock } from 'lucide-react';
+import { Activity, Circle, ArrowRight, Clock, Loader2 } from 'lucide-react';
+import { usePetriNet } from '@/hooks/usePetriNet';
+import { useSimulation } from '@/hooks/useSimulation';
 
 interface PetriNetViewerProps {
   entityId?: string;
@@ -16,23 +11,34 @@ interface PetriNetViewerProps {
 
 export default function PetriNetViewer({
   entityId,
-  enabled = false,
+  enabled = true,
 }: PetriNetViewerProps) {
-  // Mock Petri Net for demonstration
-  const mockPlaces = [
-    { id: 'planned', name: 'PLANNED', tokens: 0, active: false },
-    { id: 'pickup', name: 'PICKUP', tokens: 0, active: false },
-    { id: 'transit', name: 'TRANSIT', tokens: 1, active: true },
-    { id: 'delivery', name: 'DELIVERY', tokens: 0, active: false },
-    { id: 'delivered', name: 'DELIVERED', tokens: 0, active: false },
-  ];
+  const { state: simState } = useSimulation();
 
-  const mockTransitions = [
-    { from: 'planned', to: 'pickup', name: 'assign_driver' },
-    { from: 'pickup', to: 'transit', name: 'start_delivery' },
-    { from: 'transit', to: 'delivery', name: 'arrive_destination' },
-    { from: 'delivery', to: 'delivered', name: 'confirm_delivery' },
-  ];
+  // Find the petriNetId for the selected parcel
+  const petriNetId = useMemo(() => {
+    if (!entityId) return undefined;
+    const parcel = simState.parcels.get(entityId);
+    return parcel?.parcelData?.petriNetId;
+  }, [entityId, simState.parcels]);
+
+  const { state: netState, isLoading, actions } = usePetriNet(petriNetId);
+
+  // Default places if netId is null but enabled
+  const places = useMemo(() => {
+    if (!netState) return [];
+
+    // Convert marking to a list of places with token counts
+    // For standard flow: CREATED, PLANNED, IN_TRANSIT, DELIVERED, RETURNED
+    const standardPlaces = ['PLANNED', 'PENDING_PICKUP', 'IN_TRANSIT', 'DELIVERED', 'FAILED'];
+
+    return standardPlaces.map(pId => ({
+      id: pId,
+      name: pId,
+      tokens: netState.marking[pId] || [],
+      active: (netState.marking[pId]?.length || 0) > 0
+    }));
+  }, [netState]);
 
   if (!enabled) {
     return (
@@ -45,10 +51,43 @@ export default function PetriNetViewer({
           <span className="inline-block bg-gray-400 text-white text-[9px] px-2 py-0.5 rounded">
             DISABLED
           </span>
-          <p className="text-[10px] text-gray-400 mt-2 italic">
-            L'API de transition d'états sera connectée prochainement.
-          </p>
         </div>
+      </Card>
+    );
+  }
+
+  if (!entityId) {
+    return (
+      <Card className="p-6 bg-gray-50 border-dashed flex flex-col items-center justify-center text-center">
+        <Activity className="w-8 h-8 text-gray-300 mb-3" />
+        <p className="text-xs font-bold text-gray-500 uppercase">
+          Aucun colis sélectionné
+        </p>
+        <p className="text-[10px] text-gray-400 mt-1 max-w-[150px]">
+          Sélectionnez un colis pour voir son cycle de vie Petri Net
+        </p>
+      </Card>
+    );
+  }
+
+  if (isLoading && !netState) {
+    return (
+      <Card className="p-8 flex items-center justify-center">
+        <Loader2 className="w-6 h-6 text-primary animate-spin" />
+      </Card>
+    );
+  }
+
+  if (!petriNetId) {
+    return (
+      <Card className="p-6 bg-red-50 border-red-100 flex flex-col items-center justify-center text-center">
+        <Activity className="w-8 h-8 text-red-200 mb-3" />
+        <p className="text-xs font-bold text-red-600 uppercase">
+          Pas de PetriNet ID
+        </p>
+        <p className="text-[10px] text-red-400 mt-1">
+          Ce colis n'a pas été initialisé avec un réseau de Petri.
+        </p>
       </Card>
     );
   }
@@ -61,47 +100,47 @@ export default function PetriNetViewer({
           Réseau de Petri
         </h3>
         <span className="bg-green-500 text-white text-[9px] px-2 py-0.5 rounded font-bold">
-          ACTIVE
+          {isLoading ? 'SYNCING...' : 'ACTIVE'}
         </span>
       </div>
 
-      {entityId && (
-        <p className="text-xs text-gray-500 mb-3">
-          Entity: <span className="font-mono font-semibold">{entityId}</span>
-        </p>
-      )}
+      <div className="flex items-center justify-between mb-3 text-[10px] text-gray-500">
+        <span>Net: <span className="font-mono">{petriNetId.substring(0, 8)}...</span></span>
+        <span>Time: {netState?.currentTime || 0}</span>
+      </div>
 
-      {/* Petri Net Visualization */}
-      <div className="space-y-3">
-        {mockPlaces.map((place, index) => (
+      <div className="space-y-4">
+        {places.length === 0 && !isLoading && (
+          <p className="text-center text-xs text-gray-400 italic">Structure du réseau introuvable</p>
+        )}
+
+        {places.map((place, index) => (
           <div key={place.id}>
-            {/* Place */}
             <div className="flex items-center gap-3">
               <div
                 className={`
-                  relative w-10 h-10 rounded-full border-2 flex items-center justify-center
+                  relative w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all
                   ${place.active
-                    ? 'border-primary bg-primary-light'
+                    ? 'border-primary bg-primary-light shadow-[0_0_8px_rgba(var(--primary-rgb),0.3)]'
                     : 'border-gray-300 bg-white'
                   }
                 `}
               >
                 <Circle
                   className={`w-5 h-5 ${place.active ? 'text-primary' : 'text-gray-400'}`}
-                  fill={place.tokens > 0 ? 'currentColor' : 'none'}
+                  fill={place.tokens.length > 0 ? 'currentColor' : 'none'}
                 />
-                {place.tokens > 0 && (
+                {place.tokens.length > 0 && (
                   <span className="absolute -top-1 -right-1 bg-primary text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
-                    {place.tokens}
+                    {place.tokens.length}
                   </span>
                 )}
               </div>
 
               <div className="flex-1">
                 <p
-                  className={`text-xs font-bold ${
-                    place.active ? 'text-primary' : 'text-gray-600'
-                  }`}
+                  className={`text-xs font-bold ${place.active ? 'text-primary' : 'text-gray-600'
+                    }`}
                 >
                   {place.name}
                 </p>
@@ -111,31 +150,25 @@ export default function PetriNetViewer({
               </div>
             </div>
 
-            {/* Transition arrow */}
-            {index < mockPlaces.length - 1 && (
-              <div className="ml-5 my-1 flex items-center gap-2 text-gray-400">
-                <ArrowRight className="w-3 h-3" />
-                <span className="text-[9px] font-mono">
-                  {mockTransitions[index]?.name}
-                </span>
+            {index < places.length - 1 && (
+              <div className="ml-5 my-1 flex items-center gap-2 text-gray-300">
+                <div className="w-0.5 h-4 bg-gray-200 ml-1.5" />
               </div>
             )}
           </div>
         ))}
       </div>
 
-      {/* Transition Log */}
-      <div className="mt-4 pt-3 border-t border-gray-200">
-        <h4 className="text-[10px] font-bold text-gray-600 uppercase mb-2 flex items-center gap-1">
-          <Clock className="w-3 h-3" />
-          Historique des transitions
-        </h4>
-        <div className="space-y-1 max-h-24 overflow-y-auto">
-          <LogEntry time="14:32:10" transition="start_delivery" />
-          <LogEntry time="14:30:45" transition="assign_driver" />
-          <LogEntry time="14:30:12" transition="create_parcel" />
+      {netState && (
+        <div className="mt-4 pt-3 border-t border-gray-100">
+          <button
+            onClick={() => actions.refresh()}
+            className="w-full text-[10px] text-primary hover:underline"
+          >
+            Actualiser manuellement
+          </button>
         </div>
-      </div>
+      )}
     </Card>
   );
 }

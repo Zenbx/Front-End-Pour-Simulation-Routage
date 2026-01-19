@@ -99,7 +99,7 @@ interface EnhancedMapProps {
   incidentPlacementMode: boolean;
   selectedIncidentType: IncidentType | null;
   onParcelClick: (parcelId: string) => void;
-  onIncidentPlace: (position: Position, type: IncidentType) => void;
+  onIncidentPlace: (startPos: Position, endPos: Position, type: IncidentType) => void;
   onIncidentClick: (incidentId: string) => void;
 }
 
@@ -108,12 +108,21 @@ function MapClickHandler({
   incidentPlacementMode,
   selectedIncidentType,
   onIncidentPlace,
+  onFirstClickChange,
 }: {
   incidentPlacementMode: boolean;
   selectedIncidentType: IncidentType | null;
-  onIncidentPlace: (position: Position, type: IncidentType) => void;
+  onIncidentPlace: (startPos: Position, endPos: Position, type: IncidentType) => void;
+  onFirstClickChange?: (hasFirstClick: boolean) => void;
 }) {
   const map = useMap();
+  const [firstClick, setFirstClick] = React.useState<Position | null>(null);
+  const [mousePosition, setMousePosition] = React.useState<Position | null>(null);
+
+  // Notify parent when first click state changes
+  useEffect(() => {
+    onFirstClickChange?.(firstClick !== null);
+  }, [firstClick, onFirstClickChange]);
 
   useMapEvents({
     click: (e) => {
@@ -122,10 +131,35 @@ function MapClickHandler({
           lat: e.latlng.lat,
           lng: e.latlng.lng,
         };
-        onIncidentPlace(position, selectedIncidentType);
+
+        if (!firstClick) {
+          // First click: set start point
+          setFirstClick(position);
+        } else {
+          // Second click: create incident line
+          onIncidentPlace(firstClick, position, selectedIncidentType);
+          setFirstClick(null);
+          setMousePosition(null);
+        }
+      }
+    },
+    mousemove: (e) => {
+      if (incidentPlacementMode && firstClick) {
+        setMousePosition({
+          lat: e.latlng.lat,
+          lng: e.latlng.lng,
+        });
       }
     },
   });
+
+  // Reset state when placement mode is disabled
+  useEffect(() => {
+    if (!incidentPlacementMode) {
+      setFirstClick(null);
+      setMousePosition(null);
+    }
+  }, [incidentPlacementMode]);
 
   // Change cursor when in placement mode
   useEffect(() => {
@@ -136,7 +170,39 @@ function MapClickHandler({
     }
   }, [incidentPlacementMode, map]);
 
-  return null;
+  return (
+    <>
+      {/* First click marker */}
+      {firstClick && (
+        <Circle
+          center={[firstClick.lat, firstClick.lng]}
+          radius={10}
+          pathOptions={{
+            color: '#F44336',
+            fillColor: '#F44336',
+            fillOpacity: 0.8,
+            weight: 2,
+          }}
+        />
+      )}
+
+      {/* Preview line from first click to mouse position */}
+      {firstClick && mousePosition && (
+        <Polyline
+          positions={[
+            [firstClick.lat, firstClick.lng],
+            [mousePosition.lat, mousePosition.lng],
+          ]}
+          pathOptions={{
+            color: '#F44336',
+            weight: 3,
+            opacity: 0.6,
+            dashArray: '10, 10',
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 
@@ -153,9 +219,18 @@ export default function EnhancedMap({
   onIncidentPlace,
   onIncidentClick,
 }: EnhancedMapProps) {
+  const [isFirstClickPlaced, setIsFirstClickPlaced] = React.useState(false);
+
   useEffect(() => {
     fixLeafletIcons();
   }, []);
+
+  // Reset first click state when placement mode changes
+  useEffect(() => {
+    if (!incidentPlacementMode) {
+      setIsFirstClickPlaced(false);
+    }
+  }, [incidentPlacementMode]);
 
   const getRouteColor = (parcel: SimulatedParcel) => {
     switch (parcel.state) {
@@ -197,6 +272,7 @@ export default function EnhancedMap({
           incidentPlacementMode={incidentPlacementMode}
           selectedIncidentType={selectedIncidentType}
           onIncidentPlace={onIncidentPlace}
+          onFirstClickChange={setIsFirstClickPlaced}
         />
 
         {/* Hubs */}
@@ -251,24 +327,53 @@ export default function EnhancedMap({
         {Array.from(incidents.values()).map((incident) => {
           if (incident.resolved) return null;
 
+          // Calculate midpoint for marker placement
+          const midLat = (incident.startPosition.lat + incident.endPosition.lat) / 2;
+          const midLng = (incident.startPosition.lng + incident.endPosition.lng) / 2;
+
           return (
             <React.Fragment key={incident.id}>
-              {/* Incident radius circle */}
-              <Circle
-                center={[incident.position.lat, incident.position.lng]}
-                radius={incident.radius}
+              {/* Incident line segment */}
+              <Polyline
+                positions={[
+                  [incident.startPosition.lat, incident.startPosition.lng],
+                  [incident.endPosition.lat, incident.endPosition.lng]
+                ]}
                 pathOptions={{
                   color: '#F44336',
-                  fillColor: '#F44336',
-                  fillOpacity: 0.1,
-                  weight: 2,
-                  dashArray: '5, 5',
+                  weight: Math.max(4, incident.width / 5), // Visual representation of buffer width
+                  opacity: 0.7,
+                  dashArray: '10, 10',
                 }}
               />
 
-              {/* Incident marker */}
+              {/* Start point marker */}
+              <Circle
+                center={[incident.startPosition.lat, incident.startPosition.lng]}
+                radius={8}
+                pathOptions={{
+                  color: '#F44336',
+                  fillColor: '#F44336',
+                  fillOpacity: 0.8,
+                  weight: 2,
+                }}
+              />
+
+              {/* End point marker */}
+              <Circle
+                center={[incident.endPosition.lat, incident.endPosition.lng]}
+                radius={8}
+                pathOptions={{
+                  color: '#F44336',
+                  fillColor: '#F44336',
+                  fillOpacity: 0.8,
+                  weight: 2,
+                }}
+              />
+
+              {/* Incident icon at midpoint */}
               <Marker
-                position={[incident.position.lat, incident.position.lng]}
+                position={[midLat, midLng]}
                 icon={incidentIcon(incident.type)}
                 eventHandlers={{
                   click: () => onIncidentClick(incident.id),
@@ -289,7 +394,7 @@ export default function EnhancedMap({
                       {incident.description}
                     </p>
                     <div className="text-xs text-gray-400">
-                      <p>Rayon: {incident.radius}m</p>
+                      <p>Largeur: {incident.width}m</p>
                       <p>
                         {incident.timestamp.toLocaleTimeString('fr-FR', {
                           hour: '2-digit',
@@ -309,7 +414,9 @@ export default function EnhancedMap({
           <div className="leaflet-top leaflet-center" style={{ zIndex: 1000 }}>
             <div className="bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg">
               <p className="text-sm font-semibold">
-                🎯 Cliquez sur la carte pour placer l'incident
+                {isFirstClickPlaced
+                  ? '🎯 Cliquez pour définir le point de fin de l\'incident'
+                  : '🎯 Cliquez pour définir le point de départ de l\'incident'}
               </p>
             </div>
           </div>

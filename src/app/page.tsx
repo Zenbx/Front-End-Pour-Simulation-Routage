@@ -14,6 +14,7 @@ import SimulationControls from '@/components/simulation/SimulationControls';
 import IncidentPanel from '@/components/simulation/IncidentPanel';
 import ParcelsList from '@/components/simulation/ParcelsList';
 import PetriNetViewer from '@/components/petri/PetriNetViewer';
+import ApiInspector from '@/components/debug/ApiInspector';
 import { SimulationEngine } from '@/lib/simulation-engine';
 import { Toaster } from 'react-hot-toast';
 
@@ -48,6 +49,7 @@ export default function Dashboard() {
   return (
     <>
       <Toaster position="top-right" />
+      <ApiInspector />
 
       <div className="flex h-screen bg-gray-50 font-sans text-foreground">
         {/* LEFT SIDEBAR - Control Panel */}
@@ -196,7 +198,7 @@ export default function Dashboard() {
                   <span>Colis en transit</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-0.5 bg-primary" />
+                  <div className="w-3 h-3 rounded-full bg-primary" />
                   <span>Itinéraire</span>
                 </div>
                 <div className="flex items-center gap-2">

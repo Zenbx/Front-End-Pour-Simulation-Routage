@@ -34,7 +34,6 @@ export default function ParcelCreationForm({
     driverId: '',
     weightKg: 5,
     notes: '',
-    algorithm: 'OSRM', // Default routing strategy
   });
 
   const [loading, setLoading] = useState(false);
@@ -63,40 +62,6 @@ export default function ParcelCreationForm({
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const fillTestData = () => {
-    // Find Deido Sorting Center and Bonaberi Industrial Hub
-    const deidoHub = hubs.find(h => h.address?.toLowerCase().includes('deido'));
-    const bonaberiHub = hubs.find(h => h.address?.toLowerCase().includes('bonaberi'));
-
-    // Get first available driver
-    const firstDriver = drivers.length > 0 ? drivers[0] : null;
-
-    if (!deidoHub || !bonaberiHub) {
-      toast.error('Hubs de test introuvables');
-      return;
-    }
-
-    if (!firstDriver) {
-      toast.error('Aucun livreur disponible');
-      return;
-    }
-
-    setFormData({
-      senderName: 'Test Sender',
-      senderPhone: '+237600000001',
-      recipientName: 'Test Recipient',
-      recipientPhone: '+237600000002',
-      pickupHubId: deidoHub.id,
-      deliveryHubId: bonaberiHub.id,
-      driverId: firstDriver.id,
-      weightKg: 5,
-      notes: 'Test parcel for incident simulation',
-      algorithm: 'BASIC', // Use BASIC for geometric detour testing
-    });
-
-    toast.success('Données de test chargées');
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -118,32 +83,17 @@ export default function ParcelCreationForm({
     setLoading(true);
 
     try {
-      // Step 1: Get hub coordinates and convert to WKT format
-      const pickupHub = hubs.find(h => h.id === formData.pickupHubId);
-      const deliveryHub = hubs.find(h => h.id === formData.deliveryHubId);
-
-      if (!pickupHub || !deliveryHub) {
-        toast.error('Hub introuvable');
-        setLoading(false);
-        return;
-      }
-
-      // Convert to WKT Point format: "POINT(longitude latitude)"
-      const pickupWKT = `POINT(${pickupHub.longitude} ${pickupHub.latitude})`;
-      const deliveryWKT = `POINT(${deliveryHub.longitude} ${deliveryHub.latitude})`;
-
-      // Step 2: Create parcel with WKT coordinates
+      // Step 1: Create parcel
       const parcelRequest: ParcelRequest = {
         senderName: formData.senderName,
         senderPhone: formData.senderPhone,
         recipientName: formData.recipientName,
         recipientPhone: formData.recipientPhone,
-        pickupLocation: pickupWKT,      // ← Changed from formData.pickupHubId
-        deliveryLocation: deliveryWKT,  // ← Changed from formData.deliveryHubId
+        pickupLocation: formData.pickupHubId,
+        deliveryLocation: formData.deliveryHubId,
         weightKg: formData.weightKg,
         notes: formData.notes,
       };
-
 
       const parcel = await LogisticsService.createParcel(parcelRequest);
 
@@ -164,7 +114,7 @@ export default function ParcelCreationForm({
           endHubId: formData.deliveryHubId,
           driverId: formData.driverId,
           constraints: {
-            algorithm: formData.algorithm,
+            algorithm: 'OSRM',
             vehicleType: 'TRUCK',
           },
         });
@@ -201,7 +151,6 @@ export default function ParcelCreationForm({
         driverId: '',
         weightKg: 5,
         notes: '',
-        algorithm: 'OSRM',
       });
     } catch (error: any) {
       console.error('Error creating parcel:', error);
@@ -310,23 +259,6 @@ export default function ParcelCreationForm({
           </select>
         </div>
 
-        {/* Routing Algorithm Selection */}
-        <div className="space-y-2">
-          <label className="text-xs font-semibold text-gray-600 uppercase">
-            Algorithme de routage
-          </label>
-          <select
-            className="w-full px-3 py-2 border border-outline rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
-            value={formData.algorithm}
-            onChange={(e) => handleChange('algorithm', e.target.value)}
-          >
-            <option value="OSRM">🗺️ OSRM - Routage réel (Recommandé)</option>
-            <option value="DIJKSTRA">📊 Dijkstra - Plus court chemin</option>
-            <option value="ASTAR">⚡ A* - Heuristique rapide</option>
-            <option value="BASIC">📐 Basique - Distance directe</option>
-          </select>
-        </div>
-
         {/* Weight */}
         <div className="space-y-2">
           <label className="text-xs font-semibold text-gray-600 uppercase">
@@ -355,16 +287,6 @@ export default function ParcelCreationForm({
             onChange={(e) => handleChange('notes', e.target.value)}
           />
         </div>
-
-        {/* Test Data Button */}
-        <Button
-          type="button"
-          onClick={fillTestData}
-          className="w-full gap-2 bg-purple-600 hover:bg-purple-700"
-          disabled={loading || driversLoading || hubs.length === 0}
-        >
-          🧪 Remplir données de test (Deido → Bonaberi)
-        </Button>
 
         {/* Submit Button */}
         <Button

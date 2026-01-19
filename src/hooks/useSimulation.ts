@@ -16,7 +16,7 @@ import {
 } from '@/lib/type';
 import { SimulationEngine } from '@/lib/simulation-engine';
 import { parseWKTLineString } from '@/lib/wkt-parser';
-import { LogisticsService } from '@/lib/api-client';
+import { LogisticsService, PetriNetService } from '@/lib/api-client';
 import { toast } from 'react-hot-toast';
 
 // ============================================================================
@@ -161,6 +161,14 @@ export function useSimulation() {
         );
 
         if (collidingIncident) {
+          console.log('🔥 COLLISION DETECTED!', {
+            parcelId: id,
+            incidentId: collidingIncident.id,
+            parcelPosition: updated.currentPosition,
+            incidentLineStart: collidingIncident.startPosition,
+            incidentLineEnd: collidingIncident.endPosition,
+          });
+
           // Mark as incident and trigger recalculation
           const markedParcel = SimulationEngine.markParcelIncident(
             updated,
@@ -172,6 +180,14 @@ export function useSimulation() {
           // Trigger recalculation (async)
           handleIncidentRecalculation(markedParcel, collidingIncident);
         } else if (updated !== parcel) {
+          // Check if state changed to DELIVERED in this update
+          if (updated.state === 'DELIVERED' && parcel.state === 'TRANSIT') {
+            const petriNetId = updated.parcelData?.petriNetId;
+            if (petriNetId) {
+              PetriNetService.triggerTransition(petriNetId, 'T_TRANSIT_TO_DELIVERED');
+            }
+          }
+
           updatedParcels.set(id, updated);
           hasChanges = true;
         }
@@ -258,6 +274,14 @@ export function useSimulation() {
 
         dispatch({ type: 'ADD_PARCEL', payload: simulatedParcel });
 
+        // Trigger Petri Net transitions for starting the journey
+        const petriNetId = parcelData.petriNetId;
+        if (petriNetId) {
+          // We fire these asynchronously, no need to wait for completion to update local UI
+          PetriNetService.triggerTransition(petriNetId, 'T_PLAN_TO_PICKUP')
+            .then(() => PetriNetService.triggerTransition(petriNetId, 'T_PICKUP_TO_IN_TRANSIT'));
+        }
+
         toast.success(`Livraison démarrée: ${parcelData.trackingCode}`);
       } else {
         // No route: add parcel in PLANNED state so it appears in the UI but doesn't start
@@ -303,16 +327,24 @@ export function useSimulation() {
       payload: { id: parcelId, updates: started },
     });
 
+    // Trigger Petri Net transitions for starting the journey
+    const petriNetId = parcel.parcelData?.petriNetId;
+    if (petriNetId) {
+      PetriNetService.triggerTransition(petriNetId, 'T_PLAN_TO_PICKUP')
+        .then(() => PetriNetService.triggerTransition(petriNetId, 'T_PICKUP_TO_IN_TRANSIT'));
+    }
+
     toast.success(`Livraison démarrée: ${parcel.trackingCode}`);
   }, [state.parcels]);
 
   const createIncident = useCallback(
-    async (position: Position, type: IncidentType, description?: string) => {
+    async (startPosition: Position, endPosition: Position, type: IncidentType, description?: string) => {
       const incident: Incident = {
         id: `incident-${Date.now()}`,
         type,
-        position,
-        radius: type === 'ROAD_CLOSURE' ? 500 : 200, // meters
+        startPosition,
+        endPosition,
+        width: type === 'ROAD_CLOSURE' ? 50 : 20, // meters (largeur de chaque côté)
         affectedRouteIds: [],
         timestamp: new Date(),
         resolved: false,
@@ -342,6 +374,12 @@ export function useSimulation() {
   ) => {
     if (!parcel.route) return;
 
+    console.log('=== FRONTEND: Starting recalculation ===');
+    console.log('Parcel ID:', parcel.id);
+    console.log('Route ID:', parcel.route.id);
+    console.log('Current routing service:', parcel.route.routingService);
+    console.log('Incident:', incident);
+
     toast.loading('Recalcul de l\'itinéraire...', { id: `recalc-${parcel.id}` });
 
     try {
@@ -349,16 +387,27 @@ export function useSimulation() {
         parcel.route.id,
         {
           type: incident.type,
-          location: {
-            latitude: incident.position.lat,
-            longitude: incident.position.lng,
+          lineStart: {
+            latitude: incident.startPosition.lat,
+            longitude: incident.startPosition.lng,
           },
-          radius: incident.radius,
+          lineEnd: {
+            latitude: incident.endPosition.lat,
+            longitude: incident.endPosition.lng,
+          },
+          bufferDistance: incident.width,
           description: incident.description,
         }
       );
 
+      console.log('=== FRONTEND: Recalculation response ===');
+      console.log('New routing service:', newRoute.routingService);
+      console.log('Old geometry (first 100 chars):', parcel.route.routeGeometry?.substring(0, 100));
+      console.log('New geometry (first 100 chars):', newRoute.routeGeometry?.substring(0, 100));
+      console.log('Geometries are same?', parcel.route.routeGeometry === newRoute.routeGeometry);
+
       const newRoutePath = parseWKTLineString(newRoute.routeGeometry);
+      console.log('New route path points:', newRoutePath.length);
 
       const updated = SimulationEngine.updateParcelRoute(
         parcel,

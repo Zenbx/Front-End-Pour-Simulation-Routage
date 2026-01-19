@@ -140,6 +140,69 @@ export function isWithinRadius(
 }
 
 /**
+ * Check if a point is within a buffer zone around a line segment
+ * Uses point-to-line-segment distance calculation
+ *
+ * @param point - The point to check
+ * @param lineStart - Start point of the line segment
+ * @param lineEnd - End point of the line segment
+ * @param bufferKm - Buffer distance in kilometers
+ * @returns true if the point is within the buffer zone
+ */
+export function isWithinLineBuffer(
+  point: Position,
+  lineStart: Position,
+  lineEnd: Position,
+  bufferKm: number
+): boolean {
+  // Calculate distance from point to line segment
+  const distance = pointToSegmentDistance(point, lineStart, lineEnd);
+  return distance <= bufferKm;
+}
+
+/**
+ * Calculate the minimum distance from a point to a line segment
+ * Returns distance in kilometers
+ */
+function pointToSegmentDistance(
+  point: Position,
+  lineStart: Position,
+  lineEnd: Position
+): number {
+  // Vector from lineStart to lineEnd
+  const segmentLat = lineEnd.lat - lineStart.lat;
+  const segmentLng = lineEnd.lng - lineStart.lng;
+
+  // Vector from lineStart to point
+  const pointLat = point.lat - lineStart.lat;
+  const pointLng = point.lng - lineStart.lng;
+
+  // Calculate segment length squared (avoid sqrt for performance)
+  const segmentLengthSq = segmentLat * segmentLat + segmentLng * segmentLng;
+
+  // If segment is actually a point, return distance to that point
+  if (segmentLengthSq === 0) {
+    return haversineDistance(point, lineStart);
+  }
+
+  // Calculate projection parameter t
+  // t represents where the projection of point falls on the line segment
+  // t = 0: at lineStart, t = 1: at lineEnd, 0 < t < 1: between them
+  const t = Math.max(0, Math.min(1,
+    (pointLat * segmentLat + pointLng * segmentLng) / segmentLengthSq
+  ));
+
+  // Calculate the closest point on the segment
+  const closestPoint: Position = {
+    lat: lineStart.lat + t * segmentLat,
+    lng: lineStart.lng + t * segmentLng
+  };
+
+  // Return distance from point to closest point on segment
+  return haversineDistance(point, closestPoint);
+}
+
+/**
  * Interpolate position along a path based on progress (0-1)
  */
 export function interpolateAlongPath(

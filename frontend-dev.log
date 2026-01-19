@@ -1,0 +1,32 @@
+
+> frontend@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.0 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.160:3000
+- Environments: .env.local
+
+✓ Starting...
+✓ Ready in 1397ms
+⚠ Cross origin request detected from 192.168.1.160 to /_next/* resource. In a future major version of Next.js, you will need to explicitly configure "allowedDevOrigins" in next.config to allow this.
+Read more: https://nextjs.org/docs/app/api-reference/config/next-config-js/allowedDevOrigins
+ GET /edit?projectName=Ma%20Super 404 in 1113ms (compile: 946ms, render: 167ms)
+Persisting failed: Unable to commit operations
+
+Caused by:
+    0: Unable to write meta file 00001131.meta
+    1: L’opération demandée n’a pu s’accomplir sur un fichier ayant une section mappée utilisateur ouverte. (os error 1224)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+ GET /login 404 in 94ms (compile: 14ms, render: 80ms)
+ GET /invitations/80281844012b6c94d1eac943a805f077b6295e162f1fc7ec6acdbfbd551aef5a 404 in 72ms (compile: 7ms, render: 65ms)
+ GET / 200 in 548ms (compile: 120ms, render: 428ms)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+ GET / 200 in 133ms (compile: 7ms, render: 126ms)
+ GET / 200 in 413ms (compile: 9ms, render: 404ms)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+ GET / 200 in 169ms (compile: 17ms, render: 152ms)
+ GET /register 404 in 102ms (compile: 18ms, render: 84ms)
